@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"io/ioutil"
+	"strings"
 	"text/template"
 
 	"github.com/pkg/errors"
@@ -198,7 +200,7 @@ func (t *Template) Execute(i *ExecuteInput) (*ExecuteResult, error) {
 	// Execute the template into the writer
 	var b bytes.Buffer
 	if err := tmpl.Execute(&b, nil); err != nil {
-		return nil, errors.Wrap(err, "execute")
+		return nil, errors.Wrap(redactinator(&used, i.Brain, err), "execute")
 	}
 
 	return &ExecuteResult{
@@ -206,6 +208,20 @@ func (t *Template) Execute(i *ExecuteInput) (*ExecuteResult, error) {
 		Missing: &missing,
 		Output:  b.Bytes(),
 	}, nil
+}
+
+func redactinator(used *dep.Set, b *Brain, err error) error {
+	pairs := make([]string, 0, used.Len())
+	for _, d := range used.List() {
+		if data, ok := b.Recall(d); ok {
+			if vd, ok := data.(*dep.Secret); ok {
+				for _, v := range vd.Data {
+					pairs = append(pairs, fmt.Sprintf("%v", v), "[redacted]")
+				}
+			}
+		}
+	}
+	return fmt.Errorf(strings.NewReplacer(pairs...).Replace(err.Error()))
 }
 
 // funcMapInput is input to the funcMap, which builds the template functions.
@@ -248,48 +264,56 @@ func funcMap(i *funcMapInput) template.FuncMap {
 		"scratch": func() *Scratch { return &scratch },
 
 		// Helper functions
-		"base64Decode":    base64Decode,
-		"base64Encode":    base64Encode,
-		"base64URLDecode": base64URLDecode,
-		"base64URLEncode": base64URLEncode,
-		"byKey":           byKey,
-		"byTag":           byTag,
-		"contains":        contains,
-		"containsAll":     containsSomeFunc(true, true),
-		"containsAny":     containsSomeFunc(false, false),
-		"containsNone":    containsSomeFunc(true, false),
-		"containsNotAll":  containsSomeFunc(false, true),
-		"env":             envFunc(i.env),
-		"executeTemplate": executeTemplateFunc(i.t),
-		"explode":         explode,
-		"explodeMap":      explodeMap,
-		"in":              in,
-		"indent":          indent,
-		"loop":            loop,
-		"join":            join,
-		"trimSpace":       trimSpace,
-		"parseBool":       parseBool,
-		"parseFloat":      parseFloat,
-		"parseInt":        parseInt,
-		"parseJSON":       parseJSON,
-		"parseUint":       parseUint,
-		"parseYAML":       parseYAML,
-		"plugin":          plugin,
-		"regexReplaceAll": regexReplaceAll,
-		"regexMatch":      regexMatch,
-		"replaceAll":      replaceAll,
-		"sha256Hex":       sha256Hex,
-		"timestamp":       timestamp,
-		"toLower":         toLower,
-		"toJSON":          toJSON,
-		"toJSONPretty":    toJSONPretty,
-		"toTitle":         toTitle,
-		"toTOML":          toTOML,
-		"toUpper":         toUpper,
-		"toYAML":          toYAML,
-		"split":           split,
-		"byMeta":          byMeta,
-		"sockaddr":        sockaddr,
+		"base64Decode":          base64Decode,
+		"base64Encode":          base64Encode,
+		"base64URLDecode":       base64URLDecode,
+		"base64URLEncode":       base64URLEncode,
+		"byKey":                 byKey,
+		"byTag":                 byTag,
+		"contains":              contains,
+		"containsAll":           containsSomeFunc(true, true),
+		"containsAny":           containsSomeFunc(false, false),
+		"containsNone":          containsSomeFunc(true, false),
+		"containsNotAll":        containsSomeFunc(false, true),
+		"env":                   envFunc(i.env),
+		"envOrDefault":          envWithDefaultFunc(i.env),
+		"executeTemplate":       executeTemplateFunc(i.t),
+		"explode":               explode,
+		"explodeMap":            explodeMap,
+		"mergeMap":              mergeMap,
+		"mergeMapWithOverride":  mergeMapWithOverride,
+		"in":                    in,
+		"indent":                indent,
+		"loop":                  loop,
+		"join":                  join,
+		"trimSpace":             trimSpace,
+		"parseBool":             parseBool,
+		"parseFloat":            parseFloat,
+		"parseInt":              parseInt,
+		"parseJSON":             parseJSON,
+		"parseUint":             parseUint,
+		"parseYAML":             parseYAML,
+		"plugin":                plugin,
+		"regexReplaceAll":       regexReplaceAll,
+		"regexMatch":            regexMatch,
+		"replaceAll":            replaceAll,
+		"sha256Hex":             sha256Hex,
+		"md5sum":                md5sum,
+		"timestamp":             timestamp,
+		"toLower":               toLower,
+		"toJSON":                toJSON,
+		"toJSONPretty":          toJSONPretty,
+		"toUnescapedJSON":       toUnescapedJSON,
+		"toUnescapedJSONPretty": toUnescapedJSONPretty,
+		"toTitle":               toTitle,
+		"toTOML":                toTOML,
+		"toUpper":               toUpper,
+		"toYAML":                toYAML,
+		"split":                 split,
+		"byMeta":                byMeta,
+		"sockaddr":              sockaddr,
+		"writeToFile":           writeToFile,
+
 		// Math functions
 		"add":      add,
 		"subtract": subtract,
@@ -298,6 +322,11 @@ func funcMap(i *funcMapInput) template.FuncMap {
 		"modulo":   modulo,
 		"minimum":  minimum,
 		"maximum":  maximum,
+		// Debug functions
+		"spew_dump":    spewDump,
+		"spew_printf":  spewPrintf,
+		"spew_sdump":   spewSdump,
+		"spew_sprintf": spewSprintf,
 	}
 
 	for _, bf := range i.functionDenylist {
